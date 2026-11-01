@@ -1,5 +1,27 @@
-from copy import deepcopy
-from time import perf_counter
+from time import process_time
+
+COLS = "abcdefgh"
+WIN = 100000            # score for a won position (side to move has no moves)
+MAN, KING = 100, 160    # material values
+ADVANCE = 3             # bonus per row a man has advanced
+BACK_ROW = 8            # bonus for a man still guarding its own back row
+MAX_DEPTH = 20
+
+class TimeUp(Exception):
+    pass
+
+def opponent(color):
+    return "BLACK" if color == "WHITE" else "WHITE"
+
+def kingRow(color):     # row where a man of this color gets crowned
+    return 0 if color == "WHITE" else 7
+
+def directions(color, king):
+    if king:
+        return [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+    if color == "WHITE":    # white moves up the board
+        return [(-1, -1), (-1, 1)]
+    return [(1, -1), (1, 1)]  # black moves down the board
 
 # checkers piece class
 class Piece:
@@ -8,523 +30,238 @@ class Piece:
         self.col = col
         self.color = color
         self.isKing = king
-    
+
     def makeKing(self):
         self.isKing = True
-    
+
     def movePiece(self, row, col):
         self.row = row
-        self.col = col 
+        self.col = col
 
-# checkers board class
+# checkers board class, empty cells are None
 class Board:
     def __init__(self, board, piece):
         self.board = []
         self.piece = piece  # which color you are assigned
-        w, b, kw, kb = 0, 0, 0, 0
         for i in range(8):
             row = []
             for j, val in enumerate(board[i]):
-                if(val == 'b'):
-                    p = Piece(i, j, 'BLACK', False)
-                    b += 1
-                elif(val == 'B'):
-                    p = Piece(i, j, 'BLACK', True)
-                    kb += 1
-                elif(val == 'w'):
-                    p = Piece(i, j, 'WHITE', False)
-                    w += 1
-                elif(val == 'W'):
-                    p = Piece(i, j, 'WHITE', True)
-                    kw += 1
+                if val in "bB":
+                    row.append(Piece(i, j, "BLACK", val == "B"))
+                elif val in "wW":
+                    row.append(Piece(i, j, "WHITE", val == "W"))
                 else:
-                    p = Piece(i, j, "None", False)
-                row.append(p)
+                    row.append(None)
             self.board.append(row)
-        self.whiteLeft, self.blackLeft = w, b
-        self.whiteKing, self.blackKing = kw, kb 
 
-    def evalFunction(self):
-        # find number of w, b, wk, bk and then calculate the value. 
-        eVal = 0
-        for i in range(8): 
-            for j in range(8):
-                if(self.board[i][j] is not None): # not an empty cell   
-                    if(self.board[i][j].color == "WHITE"):
-                        if(self.board[i][j].isKing):
-                            # left up and down jump
-                            t = False
-                            if(j-2>=0 and i-2>=0):
-                                if(self.board[i-1][j-1] is not None and self.board[i-1][j-1].color=="BLACK" and self.board[i-2][j-2] is None):
-                                    eVal += 5
-                                    t = True
-                            if(j-2>=0 and i+2<8):
-                                if(self.board[i+1][j-1] is not None and self.board[i+1][j-1].color=="BLACK" and self.board[i+2][j-2] is None):
-                                    eVal += 5
-                                    t = True
-                            # right up and down jump
-                            if(i-2>=0 and j+2<8):
-                                if(self.board[i-1][j+1] is not None and self.board[i-1][j+1].color=="BLACK" and self.board[i-2][j+2] is None):
-                                    eVal += 5
-                                    t = True
-                            if(i+2<8 and j+2<8):
-                                if(self.board[i+1][j+1] is not None and self.board[i+1][j+1].color=="BLACK" and self.board[i+2][j+2] is None):
-                                    eVal += 5
-                                    t = True
-                            if(not t):
-                                eVal += 3
-                        else:
-                            # jump condition non king can jump up only -> white
-                            t = False
-                            if(i-2>=0 and j-2>=0):
-                                if(self.board[i-1][j-1] is not None and self.board[i-1][j-1].color=="BLACK" and self.board[i-2][j-2] is None):
-                                    eVal += 2
-                                    t = True
-                            if(i-2>=0 and j+2<8):
-                                if(self.board[i-1][j+1] is not None and self.board[i-1][j+1].color=="BLACK" and self.board[i-2][j+2] is None):
-                                    eVal += 2
-                                    t = True
-                            # cannot jump 
-                            if(not t):
-                                eVal += 1
-                    if(self.board[i][j].color == "BLACK"):
-                        if(self.board[i][j].isKing):    # jump condition king
-                            # left up and down jump
-                            t = False
-                            if(j-2>=0 and i-2>=0):
-                                if(self.board[i-1][j-1] is not None and self.board[i-1][j-1].color=="WHITE" and self.board[i-2][j-2] is None):
-                                    eVal += 5
-                                    t = True
-                            if(j-2>=0 and i+2<8):
-                                if(self.board[i+1][j-1] is not None and self.board[i+1][j-1].color=="WHITE" and self.board[i+2][j-2] is None):
-                                    eVal += 5
-                                    t = True
-                            # right up and down jump
-                            if(i-2>=0 and j+2<8):
-                                if(self.board[i-1][j+1] is not None and self.board[i-1][j+1].color=="WHITE" and self.board[i-2][j+2] is None):
-                                    eVal += 5
-                                    t = True
-                            if(i+2<8 and j+2<8):
-                                if(self.board[i+1][j+1] is not None and self.board[i+1][j+1].color=="WHITE" and self.board[i+2][j+2] is None):
-                                    eVal += 5
-                                    t = True
-                            if(not t):
-                                eVal += 3
-                        else:
-                            # jump condition non king can jump down only -> black
-                            t = False
-                            if(i+2<8 and j-2>=0):
-                                if(self.board[i+1][j-1] is not None and self.board[i+1][j-1].color=="WHITE" and self.board[i+2][j-2] is None):
-                                    eVal += 2
-                                    t = True
-                            if(i+2<8 and j+2<8):
-                                if(self.board[i+1][j+1] is not None and self.board[i+1][j+1].color=="WHITE" and self.board[i+2][j+2] is None):
-                                    eVal += 2
-                                    t = True
-                            # cannot jump 
-                            if(not t):
-                                eVal += 1
-        return eVal
-    
-    def piece2(self, row, col):     # returns the position of piece helful in minimax-> deepcopy issue
-        return self.board[row][col]
-    
-    def getColor(self, row, col):
-        return self.board[row][col].color
-    
-    def getPieceColorWise(self):
-        w, b = 0, 0
-        for i in range(8):
-            for j in range(8):
-                if(self.board[i][j].color == "WHITE"):
-                    w += 1
-                if(self.board[i][j].color == "BLACK"):
-                    b += 1
-        return (w, b)
+    def copy(self):     # much faster than deepcopy
+        new = Board.__new__(Board)
+        new.piece = self.piece
+        new.board = [[None if p is None else Piece(p.row, p.col, p.color, p.isKing) for p in row] for row in self.board]
+        return new
 
-    def getPieces(self, color):     # for a move what are all the valid pieces available of one color .
-        bp = []
-        for i in self.board:
-            for p in i:
-                if(p is not None and p.color != None and p.color == color):
-                    bp.append(p)
-        return bp
+    def getPieces(self, color):
+        return [p for row in self.board for p in row if p is not None and p.color == color]
 
-    def move(self, piece, row, col):
-        self.board[piece.row][piece.col], self.board[row][col] = self.board[row][col], self.board[piece.row][piece.col]
-        piece.movePiece(row, col)
-        # check king
-        if(row == 7 or row == 0):
-            piece.makeKing()
-            if(piece.color == "WHITE"):
-                self.whiteKing += 1
-            elif(piece.color == "BLACK"):
-                self.blackKing += 1
-            elif(piece.color == "None"):
-                None
-
-    def validMoves(self, piece):
-        r = piece.row
-        moveLeft, moveRight = piece.col-1, piece.col+1
-        move = {}
-        if(piece.color == "WHITE"):
-            if(not piece.isKing):
-                move.update(self.goLeft(r-1, -1, -1, piece.color, moveLeft))
-                move.update(self.goRight(r-1, -1, -1, piece.color, moveRight))
-            else:   # white king piece
-                move.update(self.goLeft(r-1, -1, -1, piece.color, moveLeft))
-                move.update(self.goRight(r-1, -1, -1, piece.color, moveRight))
-                move.update(self.goLeft(r+1, 8, 1, piece.color, moveLeft))
-                move.update(self.goRight(r+1, 8, 1, piece.color, moveRight))
-        elif(piece.color == "BLACK"):
-            if(not piece.isKing):
-                move.update(self.goLeft(r+1, 8, 1, piece.color, moveLeft))
-                move.update(self.goRight(r+1, 8, 1, piece.color, moveRight))
-            else:   # black king piece
-                # up movement
-                move.update(self.goLeft(r-1, -1, -1, piece.color, moveLeft))
-                move.update(self.goRight(r-1, -1, -1, piece.color, moveRight))
-                # down movement
-                move.update(self.goLeft(r+1, 8, 1, piece.color, moveLeft))
-                move.update(self.goRight(r+1, 8, 1, piece.color, moveRight))
-        return move
-    
-    # white piece going up and black piece going down--- check for left side and right side 
-    def goLeft(self, start, stop, inc, color, leftCol, jumped = []):
-        moves, nxt = {}, []
-        for i in range(start, stop, inc):
-            if(leftCol < 0 or leftCol > 7):    # goes out of board
-                break
-            curr = self.board[i][leftCol]
-            if(curr.color == "None"):
-                if(jumped and not nxt):
-                    break
-                elif jumped:
-                    moves[(i,leftCol)] = nxt+jumped
-                else:   # we can jump over
-                    moves[(i, leftCol)] = nxt
-                if(nxt):   # found 1 jump and then check for new jumps
-                    tstop = 0
-                    if(inc == -1):
-                        tstop = -1
-                    else:
-                        tstop = 8
-                    moves.update(self.goLeft(i+inc, tstop, inc, color, leftCol-1, jumped=nxt))
-                    moves.update(self.goRight(i+inc, tstop, inc, color, leftCol+1, jumped=nxt))
-                break
-            elif(curr.color == color):      # the next cell is blocked by the same color
-                break
-            else:           # the next cell is blocked but of different color
-                nxt = [(curr.row, curr.col)]
-                if(leftCol-1 >=0 and i+1<8 and i-1>=0):
-                    if(inc == 1 and self.board[i+1][leftCol-1].color != "None") or (inc == -1 and self.board[i-1][leftCol-1].color != "None"):
-                        break
-            leftCol -= 1
+    def simpleMoves(self, piece):
+        moves = []
+        for dr, dc in directions(piece.color, piece.isKing):
+            r, c = piece.row + dr, piece.col + dc
+            if 0 <= r < 8 and 0 <= c < 8 and self.board[r][c] is None:
+                moves.append([(piece.row, piece.col), (r, c)])
         return moves
 
-    def goRight(self, start, stop, inc, color, rightCol, jumped = []):
-        moves, nxt = {}, []
-        for i in range(start, stop, inc):
-            if(rightCol < 0 or rightCol > 7):   # goes out of board
-                break
-            curr = self.board[i][rightCol]
-            if(curr.color == "None"):
-                if(jumped and not nxt):
-                    break
-                elif jumped:
-                    moves[(i,rightCol)] = nxt + jumped
-                else:
-                    moves[(i, rightCol)] = nxt
-                if(nxt):   # found 1 jump and then check for new jumps
-                    tstop = 0
-                    if(inc == -1):
-                        tstop = -1
-                    else:
-                        tstop = 8
-                    moves.update(self.goLeft(i+inc, tstop, inc, color, rightCol-1, jumped=nxt))
-                    moves.update(self.goRight(i+inc, tstop, inc, color, rightCol+1, jumped=nxt))
-                break
-            # the next cell is blocked by the same color
-            elif(curr.color == color):
-                break
-            # the next cell is empty
+    def jumpMoves(self, piece):     # every complete jump sequence for this piece
+        paths = []
+        self.findJumps(piece, piece.row, piece.col, [(piece.row, piece.col)], set(), paths)
+        return paths
+
+    def findJumps(self, piece, row, col, path, captured, paths):
+        extended = False
+        for dr, dc in directions(piece.color, piece.isKing):
+            mr, mc, lr, lc = row + dr, col + dc, row + 2*dr, col + 2*dc
+            if not (0 <= lr < 8 and 0 <= lc < 8):
+                continue
+            mid = self.board[mr][mc]
+            if mid is None or mid.color == piece.color or (mr, mc) in captured:
+                continue
+            land = self.board[lr][lc]
+            if land is not None and land is not piece:  # the start square is free once the piece leaves it
+                continue
+            extended = True
+            captured.add((mr, mc))
+            path.append((lr, lc))
+            if not piece.isKing and lr == kingRow(piece.color):
+                paths.append(list(path))    # getting crowned ends the move
             else:
-                nxt = [(curr.row, curr.col)]
-                if(rightCol+1 <8 and i+1<8 and i-1>=0):
-                    if(inc == 1 and self.board[i+1][rightCol+1].color != "None") or (inc == -1 and self.board[i-1][rightCol+1].color != "None"):
-                        break
-            rightCol += 1
-        return moves
+                self.findJumps(piece, lr, lc, path, captured, paths)
+            path.pop()
+            captured.discard((mr, mc))
+        if not extended and len(path) > 1:  # sequence can't be extended so it is complete
+            paths.append(list(path))
 
-    def removePiece(self, pieces):  # remove the jumped over pieces from the board
-        for p in pieces:
-            if(p is not None):      # decrement the counter for whiteleft and blackleft
-                if self.board[p[0]][p[1]].color == "WHITE":
-                    self.whiteLeft -= 1
+    def getMoves(self, color):  # returns (list of paths, isJump); jumps are mandatory
+        jumps, simple = [], []
+        for p in self.getPieces(color):
+            jumps.extend(self.jumpMoves(p))
+            if not jumps:
+                simple.extend(self.simpleMoves(p))
+        if jumps:
+            return jumps, True
+        return simple, False
+
+    def applyMove(self, path):  # returns a new board with the move made
+        new = self.copy()
+        r, c = path[0]
+        piece = new.board[r][c]
+        for (r1, c1), (r2, c2) in zip(path, path[1:]):
+            if abs(r2 - r1) == 2:   # remove the jumped over piece
+                new.board[(r1 + r2)//2][(c1 + c2)//2] = None
+        new.board[r][c] = None
+        er, ec = path[-1]
+        new.board[er][ec] = piece
+        piece.movePiece(er, ec)
+        if er == kingRow(piece.color):
+            piece.makeKing()
+        return new
+
+    def evalFunction(self, color):  # score from the point of view of color
+        mine, theirs, positional = 0, 0, 0
+        myKings, enemies = [], []
+        for row in self.board:
+            for p in row:
+                if p is None:
+                    continue
+                if p.isKing:
+                    val, pos = KING, 0
                 else:
-                    self.blackLeft -= 1
-            self.board[p[0]][p[1]].color = "None"    
+                    advanced = 7 - p.row if p.color == "WHITE" else p.row
+                    val = MAN
+                    pos = advanced * ADVANCE + (BACK_ROW if advanced == 0 else 0)
+                if p.color == color:
+                    mine += val
+                    positional += pos
+                    if p.isKing:
+                        myKings.append(p)
+                else:
+                    theirs += val
+                    positional -= pos
+                    enemies.append(p)
+        # when ahead, trading pieces makes the lead count for more
+        trade = (mine - theirs) * 20 // (mine + theirs) if mine + theirs else 0
+        # when ahead, kings should close in on enemy pieces instead of waiting
+        chase = 0
+        if mine > theirs and enemies:
+            for k in myKings:
+                chase -= 2 * min(max(abs(k.row - e.row), abs(k.col - e.col)) for e in enemies)
+        return mine - theirs + positional + trade + chase
+
+    def key(self):  # board as a string, used to detect repeated positions
+        return "".join("." if p is None else (p.color[0] if p.isKing else p.color[0].lower()) for row in self.board for p in row)
 
     def printBoard(self):
-        for i in range(8): 
-            for j in range(8):
-                if(self.board[i][j] is not None): 
-                    print(self.board[i][j].color, end = " ")
-                else:
-                    print(None, end = " ")
-            print(" ")
-    
-    def endGame(self):
-        if(self.whiteLeft <= 0):
-            return "BLACK"
-        elif(self.blackLeft <= 0):
-            return "WHITE"
-        return None
+        for row in self.board:
+            print("".join("." if p is None else (p.color[0].upper() if p.isKing else p.color[0].lower()) for p in row))
 
-def miniMax(pos, depth, maxLayer, color, alpha, beta):
-    if(depth == 0 or pos.endGame() != None):      # depth level reached or game finished before last level 
-        return(pos.evalFunction(), pos)
-    # if the layer is for maximizing
-    if(maxLayer):
-        resMove = None
+def miniMax(pos, depth, maxLayer, color, alpha, beta, deadline):
+    # color is the agent's color, it moves on max layers and the opponent on min layers
+    if process_time() > deadline:
+        raise TimeUp
+    toMove = color if maxLayer else opponent(color)
+    moves, isJump = pos.getMoves(toMove)
+    if not moves:   # side to move is blocked or has no pieces, so it loses; prefer faster wins
+        return (-(WIN + depth) if maxLayer else WIN + depth), None
+    if depth <= 0 and not isJump:   # keep searching forced jumps past the depth limit
+        return pos.evalFunction(color), None
+    resMove = None
+    if maxLayer:
         bestVal = float('-inf')
-        for move in getMoves(pos, color):   # move is of the format (board, piece) i.e for piece 'p' the move made to get the board
-            if(color == "WHITE"):
-                color = "BLACK"
-            else:
-                color = "WHITE"
-            eval = miniMax(move[0], depth-1, False, color, alpha, beta)[0]
-            bestVal = max(bestVal, eval)
+        for move in moves:
+            val = miniMax(pos.applyMove(move), depth-1, False, color, alpha, beta, deadline)[0]
+            if val > bestVal:
+                bestVal, resMove = val, move
             alpha = max(alpha, bestVal)
-            if(bestVal == eval):
-                resMove = move
-            if(alpha == bestVal):
-                resMove = move     # store the new board pos and the piece that we moved to [pos, piece]
-            if(beta <= alpha):
+            if beta <= alpha:
                 break
-        return(alpha, resMove)
-    else:           # if the layer is for minimizing
-        resMove = None
+    else:
         bestVal = float('inf')
-        for move in getMoves(pos, color):
-            if(color == "WHITE"):
-                color = "BLACK"
-            else:
-                color = "WHITE"
-            eval = miniMax(move[0], depth-1, True, color, alpha, beta)[0]
-            bestVal = min(bestVal, eval)
+        for move in moves:
+            val = miniMax(pos.applyMove(move), depth-1, True, color, alpha, beta, deadline)[0]
+            if val < bestVal:
+                bestVal, resMove = val, move
             beta = min(beta, bestVal)
-            if(bestVal == eval):
-                resMove = move
-            if(beta == bestVal):
-                resMove = move     # store the new board pos and the piece that we moved [pos, piece]
-            if(beta <= alpha):
+            if beta <= alpha:
                 break
-        return(beta, resMove)
+    return bestVal, resMove
 
-def makeTempMove(p, pos, move, jumped):
-    pos.move(p, move[0], move[1])
-    if jumped:
-        pos.removePiece(jumped)
-    return pos
+def timeBudget(gType, timeLeft):    # CPU seconds to spend searching this move
+    if gType == "SINGLE":
+        return max(0.0, min(timeLeft * 0.5, timeLeft - 1.0))
+    if timeLeft < 2:
+        return 0.0
+    return min(timeLeft / 30, 8.0)
 
-def getMoves(pos, color):       # prioritize jump moves first
-    jumpPiece, freePiece, moves = [], [], []
-    for p in pos.getPieces(color):
-        valMove = pos.validMoves(p)
-        isJump, route = check(p, valMove)
-        if(isJump):
-            jumpPiece.append((p, valMove))
-        else:
-            freePiece.append((p, valMove))
-    if(len(jumpPiece) != 0):
-        for data in jumpPiece:      # data == [p, valMove]
-            for move, jumped in data[1].items():
-                if(jumped):     # discard the non-jump moves in tree
-                    currPos = deepcopy(pos)
-                    currPiece = currPos.piece2(data[0].row, data[0].col)
-                    newPos = makeTempMove(currPiece, currPos, move, jumped)
-                    moves.append([newPos, currPiece])
-    else:
-        for data in freePiece:
-            for move, jumped in data[1].items():
-                currPos = deepcopy(pos)
-                currPiece = currPos.piece2(data[0].row, data[0].col)
-                newPos = makeTempMove(currPiece, currPos, move, jumped)
-                moves.append([newPos, currPiece])
-    return moves
-
-def compare(oldBoard, newBoard, color):     # color is the piece color our agent moves
-    pieceOld, pieceNew = [], []
-    wOld, bOld, wNew, bNew = 0, 0, 0, 0
-    charType = ""
-    for i in range(8):
-        for j in range(8):
-            oldColor = oldBoard.getColor(i, j)
-            newColor = newBoard.getColor(i, j)
-            if(oldColor == "WHITE"):
-                wOld += 1
-            if(oldColor == "BLACK"):
-                bOld += 1
-            if(newColor == "WHITE"):
-                wNew += 1
-            if(newColor == "BLACK"):
-                bNew += 1
-            if(oldColor == color and newColor != color):    # initial position of the piece
-                pieceOld.append((i,j))
-            if(oldColor != color and newColor == color):    # final position of the piece
-                pieceNew.append((i,j))
-    if(color == "WHITE"):
-        if(bNew < bOld):    # this means the white piece that agent moved was jumped over black pieces
-            charType = "J"
-        else:
-            charType = "E"
-    elif(color == "BLACK"):
-        if(wNew < wOld):
-            charType = "J"
-        else:
-            charType = "E"
-    return (charType, pieceOld, pieceNew)            
-
-def calculateDepth(board, color, time):
-    depth = 3 
-    w, b = board.getPieceColorWise()
-    if(w == b):
-        diff = time-3
-        if(diff > 0):
-            if(diff > 2):
-                depth = 5
-            elif(diff > 1.5 and diff < 2):
-                depth = 4
-            else:
-                depth = 3
-        else:
-            if(time > 1.5 and time < 3):
-                depth = 4
-            else:       
-                depth = 3
-        return depth
-    diff = time-10    
-    if(diff > 0):
-        if(diff > 10):
-            depth = 7
-        elif(diff > 5 and diff < 10):
-            depth = 6
-        elif(diff > 3 and diff < 5):
-            depth = 5
-        elif(diff > 1.5 and diff < 3):
-            depth = 4
-        else:
-            depth = 3
-    else:
-        if(time > 5 and time < 10):   
-            depth = 6
-        elif(time > 3 and time < 5):
-            depth = 5
-        elif(time > 1.5 and time < 3):
-            depth = 4
-        else:       
-            depth = 3     
-    return depth
-
-def miniMaxUtil(b, time, color):  
-    time = float(time)
-    depth = calculateDepth(b, color, time)
-    # depth = 6
-    print(depth)
-    value, newBoard = miniMax(b, depth, True, color, float('-inf'), float('inf'))
-    charType, pieceOld, pieceNew = compare(b, newBoard[0], color)
-    if(charType == "E"):
-        printOutputFile("E", pieceOld+pieceNew)
-    else:
-        p = b.piece2(pieceOld[0][0], pieceOld[0][1])
-        valMove = b.validMoves(p)
-        isJump, route = check(p, valMove)
-        printOutputFile("J", route)
-
-# single game mode
-def singleMove(board, color):
-    t = False
-    for p in board.getPieces(color):
-        valMove = board.validMoves(p)
-        isJump, route = check(p, valMove)
-        if(isJump):
-            t = True
+def chooseMove(b, color, budget, seen=()):
+    # seen holds keys of positions already reached this game; going back to one heads for a draw
+    moves, isJump = b.getMoves(color)
+    if len(moves) <= 1:
+        return (moves[0] if moves else None), isJump
+    start = process_time()
+    deadline = start + budget
+    best = moves[0]
+    for depth in range(1, MAX_DEPTH + 1):
+        # search the previous best move first so alpha-beta prunes more
+        ordered = [best] + [m for m in moves if m is not best]
+        alpha, depthBest = float('-inf'), None
+        try:
+            for move in ordered:
+                child = b.applyMove(move)
+                if child.key() in seen:
+                    val = 0     # repeated position scores as a draw
+                else:
+                    # depth 1 always finishes so there is a sensible move even with no time
+                    val = miniMax(child, depth-1, False, color, alpha, float('inf'),
+                                  deadline if depth > 1 else float('inf'))[0]
+                if val > alpha:
+                    alpha, depthBest = val, move
+        except TimeUp:
             break
-    return (t, route)
+        best = depthBest
+        if alpha >= WIN or process_time() - start > budget / 3:  # forced win found, or next depth won't finish
+            break
+    return best, isJump
 
-def check(p, valMove):  # find the route of the piece taken 
-    isJump = False
-    route = [(p.row, p.col)]
-    temp = []
-    if(len(valMove) != 0):  # some move exists for that piece
-        for val in valMove:
-            temp = val
-            if(len(valMove[val]) != 0):
-                isJump = True
-                break
-        if(isJump):     # find route
-            for val in valMove:
-                if(len(valMove[val]) != 0):
-                    route.append(val)
-        if(not isJump):
-            route.append(temp)
-        return (isJump, route)
-    else:
-        return(False, None)
+def square(pos):    # (row, col) -> name like "a1", row 0 is rank 8
+    return COLS[pos[1]] + str(8 - pos[0])
 
-def printOutputFile(char, route):   # printing the move to output file
-    naming = {
-        "row": {
-            0: '8',
-            1: '7',
-            2: '6',
-            3: '5',
-            4: '4',
-            5: '3',
-            6: '2',
-            7: '1'
-        }, 
-        "col": {
-            0: 'a',
-            1: 'b',
-            2: 'c',
-            3: 'd',
-            4: 'e',
-            5: 'f',
-            6: 'g',
-            7: 'h'
-        }
-    }
-    f = open("TestCases/output1.txt", "w")
-    for i, val in enumerate(route):
-        if(i+1<len(route)):
-            line = char + " " + naming["col"][route[i][1]]+naming["row"][route[i][0]] + " " + naming["col"][route[i+1][1]]+naming["row"][route[i+1][0]]
-            f.write(line)
-        f.write('\n')
-    f.close()
+def printOutputFile(path, isJump):   # printing the move to output file
+    char = "J" if isJump else "E"
+    with open("output.txt", "w") as f:
+        for a, b in zip(path, path[1:]):
+            f.write(char + " " + square(a) + " " + square(b) + "\n")
 
-start = perf_counter()
-# reading the input file
-f = open("TestCases/input1.txt", "r")
-gType = f.readline().strip().split("\n")[0] 
-# my piece color
-color = f.readline().strip().split("\n")[0]
-# time depending upon single or game mode
-time = f.readline().strip().split("\n")[0]
-board = []
-for i in range(8):
-    temp = f.readline().strip().split("\n")[0]
-    board.append(temp)
-f.close()
-b = Board(board, color)
-if(gType == "SINGLE"):
-    isJump, route = singleMove(b, color)
-    if(isJump):
-        printOutputFile("J", route)
-    else:
-        printOutputFile("E", route)
-elif(gType == "GAME"):
-    miniMaxUtil(b, time, color)
-end = perf_counter()-start
-print(end)
+def main():
+    start = process_time()
+    with open("input.txt", "r") as f:
+        tokens = f.read().split()
+    gType, color, timeLeft = tokens[0], tokens[1], float(tokens[2])
+    b = Board(tokens[3:11], color)
+    seen = []
+    if gType == "GAME":     # playdata.txt keeps the positions seen so far, the grader deletes it before each game
+        try:
+            with open("playdata.txt", "r") as f:
+                seen = f.read().split()
+        except FileNotFoundError:
+            pass
+        seen.append(b.key())
+    move, isJump = chooseMove(b, color, timeBudget(gType, timeLeft), set(seen))
+    if move is not None:
+        printOutputFile(move, isJump)
+        if gType == "GAME":
+            seen.append(b.applyMove(move).key())
+            with open("playdata.txt", "w") as f:
+                f.write("\n".join(seen) + "\n")
+    print(process_time() - start)
+
+if __name__ == "__main__":
+    main()
